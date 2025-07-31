@@ -7,33 +7,26 @@ from io import StringIO
 from urllib.parse import unquote
 from github import Github
 
-# --- 1. 配置和环境变量部分 ---
-# ... (这部分与上一版完全相同，此处省略以保持简洁)
+# --- 1. 配置和环境变量部分 (无改动) ---
 GITHUB_TOKEN = os.getenv("MY_GITHUB_TOKEN")
 REPO_NAME = os.getenv("REPO_NAME")
 FILE_PATH = os.getenv("FILE_PATH")
 WEBPAGE_URLS = os.getenv("WEBPAGE_URLS", "").strip().splitlines()
 
-# 现在，如果 COUNTRY_ORDER 未设置，此行为空字符串
 COUNTRY_ORDER_STR = os.getenv("COUNTRY_ORDER") or ""
+# 如果 COUNTRY_ORDER 未设置, 则 COUNTRY_ORDER 为一个空列表 []
 COUNTRY_ORDER = [code.strip() for code in COUNTRY_ORDER_STR.split(',')] if COUNTRY_ORDER_STR else []
 
 LINKS_PER_COUNTRY = int(os.getenv("LINKS_PER_COUNTRY") or "20")
 LINK_PREFIX = os.getenv("LINK_PREFIX", "")
 LINK_SUFFIX = os.getenv("LINK_SUFFIX", "")
 
-# ... (所有检查、常量和解析函数都与上一版V6相同，此处省略)
+# --- 2. 检查、常量和所有解析函数 (与上一版 V7 完全相同, 此处省略) ---
+# ... (extract_vless_links, extract_csv_links, extract_line_based_links, process_subscription_url 等函数均无任何改动)
 if not GITHUB_TOKEN or not REPO_NAME or not FILE_PATH: exit(1)
 if not WEBPAGE_URLS: exit(1)
 def extract_vless_links(decoded_content):
-    COUNTRY_MAPPING = {
-    "香港": "HK", "澳门": "MO", "台湾": "TW", "韩国": "KR", "日本": "JP",
-    "新加坡": "SG", "美国": "US", "英国": "GB", "法国": "FR", "德国": "DE",
-    "加拿大": "CA", "澳大利亚": "AU", "意大利": "IT", "荷兰": "NL", "挪威": "NO",
-    "芬兰": "FI", "瑞典": "SE", "丹麦": "DK", "立тов": "LT", "俄罗斯": "RU",
-    "印度": "IN", "土耳其": "TR", "捷克": "CZ", "爱沙尼亚": "EE", "拉脱维亚": "LV",
-    "都柏林": "IE", "西班牙": "ES", "奥地利": "AT", "罗马尼亚": "RO", "波兰": "PL"
-}
+    COUNTRY_MAPPING = {"香港": "HK", "澳门": "MO", "台湾": "TW", "韩国": "KR", "日本": "JP", "新加坡": "SG", "美国": "US"}
     regex = re.compile(r'(vless|vmess)://[a-zA-Z0-9\-]+@([^:]+):(\d+)\?[^#]+#([^\n\r]+)')
     links = []
     for match in regex.finditer(decoded_content):
@@ -105,33 +98,22 @@ def process_subscription_url(url):
     except requests.RequestException as e:
         print(f"  > 获取 URL 内容失败: {e}")
         return []
-
-# --- 排序和写入 GitHub 的函数 ---
-
-# <<< 修改点 START >>>
+        
+# --- 排序和写入函数 (无改动) ---
 def filter_and_sort_links(all_links, order, limit):
-    """
-    根据给定的顺序对链接进行排序和筛选。
-    如果 order 列表为空，则按找到的节点代码的默认顺序输出所有节点。
-    """
     grouped_links = {}
     for link_info in all_links:
         code = link_info['code']
         if code not in grouped_links: grouped_links[code] = []
         grouped_links[code].append(link_info['link'])
-    
-    # 如果用户没有提供 COUNTRY_ORDER，则 order_to_use 就是所有找到的代码
     order_to_use = order if order else list(grouped_links.keys())
-    
     sorted_and_filtered_links = []
     for code in order_to_use:
         if code in grouped_links:
             unique_links = list(dict.fromkeys(grouped_links[code]))
             sorted_and_filtered_links.extend(unique_links[:limit])
     return sorted_and_filtered_links
-# <<< 修改点 END >>>
 
-# ... (write_to_github 和 main 函数无任何改动)
 def write_to_github(content):
     if not content:
         print("没有生成任何内容，已跳过写入 GitHub。")
@@ -149,21 +131,37 @@ def write_to_github(content):
     except Exception as e:
         print(f"写入 GitHub 时发生错误: {e}")
 
+
+# --- 主函数 (重大逻辑修改) ---
 def main():
     print("开始执行订阅链接处理任务...")
     all_extracted_links = []
     for url in WEBPAGE_URLS:
         if url:
             links = process_subscription_url(url)
-            if links: all_extracted_links.extend(links)
+            if links:
+                all_extracted_links.extend(links)
     
     print(f"\n从所有源共提取了 {len(all_extracted_links)} 个有效链接。")
-    if not all_extracted_links:
-        print("未能从任何源提取到链接，任务终止。"); return
 
-    # 关键改动在这里生效：如果 COUNTRY_ORDER 为空列表，函数会处理所有节点
-    final_links = filter_and_sort_links(all_extracted_links, COUNTRY_ORDER, LINKS_PER_COUNTRY)
-    print(f"经过排序和筛选后，最终保留 {len(final_links)} 个链接。")
+    if not all_extracted_links:
+        print("未能从任何源提取到链接，任务终止。")
+        return
+
+    # <<< 关键逻辑修改 START >>>
+    final_links = []
+    # 如果 COUNTRY_ORDER 被设置了 (列表不为空)，则进入“排序分组模式”
+    if COUNTRY_ORDER:
+        print("检测到 COUNTRY_ORDER, 进入排序分组模式...")
+        final_links = filter_and_sort_links(all_extracted_links, COUNTRY_ORDER, LINKS_PER_COUNTRY)
+    # 如果 COUNTRY_ORDER 未被设置 (列表为空)，则进入“原始顺序模式”
+    else:
+        print("未检测到 COUNTRY_ORDER, 进入原始顺序模式...")
+        # 直接从提取到的列表中提取链接字符串，保持原始顺序
+        final_links = [link_info['link'] for link_info in all_extracted_links]
+    # <<< 关键逻辑修改 END >>>
+
+    print(f"经过处理后，最终保留 {len(final_links)} 个链接。")
     final_content = "\n".join(final_links)
     write_to_github(final_content)
 
