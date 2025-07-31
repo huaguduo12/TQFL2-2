@@ -26,7 +26,14 @@ LINK_SUFFIX = os.getenv("LINK_SUFFIX", "")
 if not GITHUB_TOKEN or not REPO_NAME or not FILE_PATH: exit(1)
 if not WEBPAGE_URLS: exit(1)
 def extract_vless_links(decoded_content):
-    COUNTRY_MAPPING = {"香港": "HK", "澳门": "MO", "台湾": "TW", "韩国": "KR", "日本": "JP", "新加坡": "SG", "美国": "US"}
+    COUNTRY_MAPPING = {
+    "香港": "HK", "澳门": "MO", "台湾": "TW", "韩国": "KR", "日本": "JP",
+    "新加坡": "SG", "美国": "US", "英国": "GB", "法国": "FR", "德国": "DE",
+    "加拿大": "CA", "澳大利亚": "AU", "意大利": "IT", "荷兰": "NL", "挪威": "NO",
+    "芬兰": "FI", "瑞典": "SE", "丹麦": "DK", "立тов": "LT", "俄罗斯": "RU",
+    "印度": "IN", "土耳其": "TR", "捷克": "CZ", "爱沙尼亚": "EE", "拉脱维亚": "LV",
+    "都柏林": "IE", "西班牙": "ES", "奥地利": "AT", "罗马尼亚": "RO", "波兰": "PL"
+}
     regex = re.compile(r'(vless|vmess)://[a-zA-Z0-9\-]+@([^:]+):(\d+)\?[^#]+#([^\n\r]+)')
     links = []
     for match in regex.finditer(decoded_content):
