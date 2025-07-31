@@ -19,8 +19,8 @@ COUNTRY_ORDER = [code.strip() for code in COUNTRY_ORDER_STR.split(',')] if COUNT
 
 # 您可以在 GitHub Secrets 中将此值设为 3
 LINKS_PER_COUNTRY = int(os.getenv("LINKS_PER_COUNTRY") or "20")
-LINK_PREFIX = os.getenv("LINK_PREFIX", "")
-LINK_SUFFIX = os.getenv("LINK_SUFFIX", "")
+LINK_PREFIX = os.getenv("LINK_PREFIX") or ""
+LINK_SUFFIX = os.getenv("LINK_SUFFIX") or ""
 
 # --- 2. 检查、常量和所有解析函数 (与上一版 V8 完全相同, 此处省略) ---
 # ... (所有解析函数和主流程函数 process_subscription_url 等均无任何改动)
