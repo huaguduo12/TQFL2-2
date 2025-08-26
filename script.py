@@ -6,9 +6,9 @@ import csv
 from io import StringIO
 from urllib.parse import unquote
 from github import Github
-import random  # <<< 新增：导入 random 模块 >>>
+import random
 
-# --- 1. 配置和环境变量部分 (无改动) ---
+# --- 1. 配置读取 ---
 GITHUB_TOKEN = os.getenv("MY_GITHUB_TOKEN")
 REPO_NAME = os.getenv("REPO_NAME")
 FILE_PATH = os.getenv("FILE_PATH")
@@ -17,24 +17,39 @@ WEBPAGE_URLS = os.getenv("WEBPAGE_URLS", "").strip().splitlines()
 COUNTRY_ORDER_STR = os.getenv("COUNTRY_ORDER") or ""
 COUNTRY_ORDER = [code.strip() for code in COUNTRY_ORDER_STR.split(',')] if COUNTRY_ORDER_STR else []
 
-# 您可以在 GitHub Secrets 中将此值设为 3
 LINKS_PER_COUNTRY = int(os.getenv("LINKS_PER_COUNTRY") or "20")
 LINK_PREFIX = os.getenv("LINK_PREFIX") or ""
 LINK_SUFFIX = os.getenv("LINK_SUFFIX") or ""
 
-# --- 2. 检查、常量和所有解析函数 (与上一版 V8 完全相同, 此处省略) ---
-# ... (所有解析函数和主流程函数 process_subscription_url 等均无任何改动)
+# 新增：输出格式控制器 (simple/full)
+OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT") or "full"
+
 if not GITHUB_TOKEN or not REPO_NAME or not FILE_PATH: exit(1)
 if not WEBPAGE_URLS: exit(1)
-def extract_vless_links(decoded_content):
-    COUNTRY_MAPPING = {
+
+# --- 2. 国家/地区代码与名称、国旗的映射 ---
+COUNTRY_MAPPING = {
     "香港": "HK", "澳门": "MO", "台湾": "TW", "韩国": "KR", "日本": "JP",
     "新加坡": "SG", "美国": "US", "英国": "GB", "法国": "FR", "德国": "DE",
     "加拿大": "CA", "澳大利亚": "AU", "意大利": "IT", "荷兰": "NL", "挪威": "NO",
-    "芬兰": "FI", "瑞典": "SE", "丹麦": "DK", "立тов": "LT", "俄罗斯": "RU",
+    "芬兰": "FI", "瑞典": "SE", "丹麦": "DK", "立陶宛": "LT", "俄罗斯": "RU", # 注意：立тов -> 立陶宛
     "印度": "IN", "土耳其": "TR", "捷克": "CZ", "爱沙尼亚": "EE", "拉脱维亚": "LV",
     "都柏林": "IE", "西班牙": "ES", "奥地利": "AT", "罗马尼亚": "RO", "波兰": "PL"
 }
+CODE_TO_NAME = {v: k for k, v in COUNTRY_MAPPING.items()}
+CODE_TO_FLAG = {
+    "HK": "🇭🇰", "MO": "🇲🇴", "TW": "🇹🇼", "KR": "🇰🇷", "JP": "🇯🇵",
+    "SG": "🇸🇬", "US": "🇺🇸", "GB": "🇬🇧", "FR": "🇫🇷", "DE": "🇩🇪",
+    "CA": "🇨🇦", "AU": "🇦🇺", "IT": "🇮🇹", "NL": "🇳🇱", "NO": "🇳🇴",
+    "FI": "🇫🇮", "SE": "🇸🇪", "DK": "🇩🇰", "LT": "🇱🇹", "RU": "🇷🇺",
+    "IN": "🇮🇳", "TR": "🇹🇷", "CZ": "🇨🇿", "EE": "🇪🇪", "LV": "🇱🇻",
+    "IE": "🇮🇪", "ES": "🇪🇸", "AT": "🇦🇹", "RO": "🇷🇴", "PL": "🇵🇱",
+    "UNKNOWN": "❓"
+}
+
+# --- 3. 链接提取函数 (已重构) ---
+# 提取函数返回 link_part (如 ip:port)，而不是最终格式化的链接
+def extract_vless_links(decoded_content):
     regex = re.compile(r'(vless|vmess)://[a-zA-Z0-9\-]+@([^:]+):(\d+)\?[^#]+#([^\n\r]+)')
     links = []
     for match in regex.finditer(decoded_content):
@@ -47,9 +62,10 @@ def extract_vless_links(decoded_content):
             if code_match: country_code = code_match.group(1)
         
         if country_code != "UNKNOWN":
-            formatted_link = f"{ip}:{port}#{LINK_PREFIX}{country_code}{LINK_SUFFIX}"
-            links.append({"link": formatted_link, "code": country_code})
+            link_part = f"{ip}:{port}"
+            links.append({"link_part": link_part, "code": country_code})
     return links
+
 def extract_csv_links(csv_content):
     links = []
     f = StringIO(csv_content)
@@ -60,11 +76,12 @@ def extract_csv_links(csv_content):
             if len(row) >= 4:
                 ip, port, code = row[0].strip(), row[1].strip(), row[3].strip()
                 if ip and port and code:
-                    formatted_link = f"{ip}:{port}#{LINK_PREFIX}{code}{LINK_SUFFIX}"
-                    links.append({"link": formatted_link, "code": code})
+                    link_part = f"{ip}:{port}"
+                    links.append({"link_part": link_part, "code": code})
     except Exception as e:
         print(f"  > CSV 解析时出错: {e}")
     return links
+
 def extract_line_based_links(plain_content):
     links = []
     for line in plain_content.strip().splitlines():
@@ -73,15 +90,16 @@ def extract_line_based_links(plain_content):
         trojan_match = re.search(r'trojan://[^@]+@([^:]+):(\d+)[^#]*#(.+)', clean_line)
         if trojan_match:
             host, port, code = trojan_match.group(1), trojan_match.group(2), trojan_match.group(3).strip()
-            formatted_link = f"{host}:{port}#{LINK_PREFIX}{code}{LINK_SUFFIX}"
-            links.append({"link": formatted_link, "code": code})
+            link_part = f"{host}:{port}"
+            links.append({"link_part": link_part, "code": code})
             continue
         ip_port_match = re.search(r'([^:]+:\d+)#(.+)', clean_line)
         if ip_port_match:
             link_part, code = ip_port_match.group(1), ip_port_match.group(2).strip()
-            formatted_link = f"{link_part}#{LINK_PREFIX}{code}{LINK_SUFFIX}"
-            links.append({"link": formatted_link, "code": code})
+            links.append({"link_part": link_part, "code": code})
     return links
+
+# --- 4. 核心处理逻辑 ---
 def process_subscription_url(url):
     print(f"正在处理 URL: {url}")
     try:
@@ -107,40 +125,45 @@ def process_subscription_url(url):
         print(f"  > 获取 URL 内容失败: {e}")
         return []
 
-# --- 排序和写入函数 ---
+def format_link(link_part, code, index=None):
+    """根据全局设置格式化单个链接"""
+    if OUTPUT_FORMAT == 'full':
+        flag = CODE_TO_FLAG.get(code, CODE_TO_FLAG["UNKNOWN"])
+        name = CODE_TO_NAME.get(code, code)
+        name_suffix = str(index) if index is not None else ""
+        return f"{link_part}#{LINK_PREFIX}{flag}{name}{name_suffix}{LINK_SUFFIX}"
+    else:
+        return f"{link_part}#{LINK_PREFIX}{code}{LINK_SUFFIX}"
 
-# <<< 修改点 START >>>
 def filter_and_sort_links(all_links, order, limit):
     """
-    根据给定的顺序对链接进行分组，并从每组中【随机】抽取指定数量的链接。
+    根据顺序分组，并从每组中【随机】抽取链接，最后应用选择的格式。
     """
     grouped_links = {}
     for link_info in all_links:
         code = link_info['code']
         if code not in grouped_links: grouped_links[code] = []
-        grouped_links[code].append(link_info['link'])
+        # 注意：这里我们收集的是 link_part
+        grouped_links[code].append(link_info['link_part'])
     
     order_to_use = order if order else list(grouped_links.keys())
     
-    sorted_and_filtered_links = []
+    final_links = []
     for code in order_to_use:
         if code in grouped_links:
             unique_links = list(dict.fromkeys(grouped_links[code]))
             
-            # --- 核心修改：从切片改为随机抽样 ---
-            # 确定要抽样的数量 k，不能超过拥有的节点数
+            # --- 核心修改：随机抽样 ---
             num_to_sample = min(limit, len(unique_links))
-            # 从该国家的节点中随机抽取 k 个
             randomly_selected = random.sample(unique_links, num_to_sample)
             
-            sorted_and_filtered_links.extend(randomly_selected)
-            # --- 原代码：sorted_and_filtered_links.extend(unique_links[:limit]) ---
-
-    return sorted_and_filtered_links
-# <<< 修改点 END >>>
+            # --- 核心修改：应用格式化 ---
+            for i, link_part in enumerate(randomly_selected, 1):
+                final_links.append(format_link(link_part, code, i))
+                
+    return final_links
 
 def write_to_github(content):
-    # ... (此函数无任何改动)
     if not content:
         print("没有生成任何内容，已跳过写入 GitHub。")
         return
@@ -157,8 +180,8 @@ def write_to_github(content):
     except Exception as e:
         print(f"写入 GitHub 时发生错误: {e}")
 
+# --- 5. 主函数 ---
 def main():
-    # ... (此函数无任何改动)
     print("开始执行订阅链接处理任务...")
     all_extracted_links = []
     for url in WEBPAGE_URLS:
@@ -175,11 +198,20 @@ def main():
 
     final_links = []
     if COUNTRY_ORDER:
-        print("检测到 COUNTRY_ORDER, 进入排序分组模式...")
+        print("检测到 COUNTRY_ORDER, 进入【随机排序】分组模式...")
         final_links = filter_and_sort_links(all_extracted_links, COUNTRY_ORDER, LINKS_PER_COUNTRY)
     else:
         print("未检测到 COUNTRY_ORDER, 进入原始顺序模式...")
-        final_links = [link_info['link'] for link_info in all_extracted_links]
+        # 即使在原始模式下，也需要为 'full' 格式添加编号
+        country_counters = {}
+        for link_info in all_extracted_links:
+            code = link_info['code']
+            link_part = link_info['link_part']
+            
+            current_count = country_counters.get(code, 0) + 1
+            country_counters[code] = current_count
+            
+            final_links.append(format_link(link_part, code, current_count))
 
     print(f"经过处理后，最终保留 {len(final_links)} 个链接。")
     final_content = "\n".join(final_links)
