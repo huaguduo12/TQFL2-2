@@ -22,7 +22,7 @@ LINK_PREFIX = os.getenv("LINK_PREFIX") or ""
 LINK_SUFFIX = os.getenv("LINK_SUFFIX") or ""
 
 OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT") or "full"
-SELECTION_MODE = os.getenv("SELECTION_MODE") or "random" # <--- 新增：提取模式控制器
+SELECTION_MODE = os.getenv("SELECTION_MODE") or "sequential" # <--- 新增：提取模式控制器
 
 if not GITHUB_TOKEN or not REPO_NAME or not FILE_PATH: exit(1)
 if not WEBPAGE_URLS: exit(1)
